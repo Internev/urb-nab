@@ -3,12 +3,15 @@ package main
 import (
   "fmt"
   "log"
+  "sync"
   // "io/ioutil"
   // "path/filepath"
   "os"
 
   "github.com/PuerkitoBio/goquery"
 )
+
+var wg sync.WaitGroup
 
 func check(e error) {
   if e != nil {
@@ -18,13 +21,13 @@ func check(e error) {
 
 func main() {
   links := prepLinks("https://www.urbandictionary.com")
-  fmt.Println("links:", links)
   for _, link := range(links) {
-    fmt.Println("link:", link)
-    saveDefinition(link)
+    wg.Add(1)
+    go saveDefinition(link)
   }
 
-  fmt.Println("Done?!")
+  wg.Wait()
+  fmt.Println("All Done.")
 }
 
 func prepLinks(url string) []string {
@@ -71,6 +74,7 @@ func (t term) save(path string) {
 }
 
 func saveDefinition(url string) {
+  defer wg.Done()
   doc, err := goquery.NewDocument(url)
   check(err)
 
@@ -80,6 +84,5 @@ func saveDefinition(url string) {
   termExample := def.Find(".example").Text()
 
   definition := term{termTitle, termDef, termExample}
-  fmt.Println("I have made a struct:", definition)
   definition.save("/scraped")
 }
