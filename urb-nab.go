@@ -16,7 +16,7 @@ import (
 
 var wg sync.WaitGroup
 
-type termDB struct {
+type entry struct {
   gorm.Model
   Term string
   Def string
@@ -34,7 +34,7 @@ func main() {
   check(err)
   defer db.Close()
 
-  db.AutoMigrate(&termDB{})
+  db.AutoMigrate(&entry{})
 
   links := prepLinks("https://www.urbandictionary.com")
   for _, link := range(links) {
@@ -100,6 +100,10 @@ func saveDefinition(url string, db *gorm.DB) {
   termExample := def.Find(".example").Text()
 
   definition := term{termTitle, termDef, termExample}
-  db.Create(&termDB{Term: termTitle, Def: termDef, Example: termExample})
+  dbEntry := entry{Term: termTitle, Def: termDef, Example: termExample}
+
+  db.Where(entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
+  // db.Where(entry{Term: termTitle}).Attrs(entry{Term: termTitle, Def: termDef, Example: termExample}).FirstOrCreate(&entry)
+  db.Create(&dbEntry)
   definition.save("/scraped")
 }
