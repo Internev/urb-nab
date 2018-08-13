@@ -4,6 +4,8 @@ import (
   "fmt"
   "log"
   "sync"
+  "net/http"
+  "encoding/json"
   // "io/ioutil"
   // "path/filepath"
   "os"
@@ -16,7 +18,7 @@ import (
 
 var wg sync.WaitGroup
 
-type entry struct {
+type Entry struct {
   gorm.Model
   Term string
   Def string
@@ -34,7 +36,17 @@ func main() {
   check(err)
   defer db.Close()
 
-  db.AutoMigrate(&entry{})
+  db.AutoMigrate(&Entry{})
+
+  http.HandleFunc("/grab", grabHandler)
+  http.HandleFunc("/give", giveHandler)
+  log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func grabHandler(w http.ResponseWriter, r *http.Request) {
+  db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
+  check(err)
+  defer db.Close()
 
   links := prepLinks("https://www.urbandictionary.com")
   for _, link := range(links) {
@@ -43,7 +55,22 @@ func main() {
   }
 
   wg.Wait()
-  fmt.Println("All Done.")
+  fmt.Fprintf(w, "All Done.")
+}
+
+func giveHandler(w http.ResponseWriter, r *http.Request) {
+  db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
+  check(err)
+  defer db.Close()
+
+  var results []Entry
+  db.Find(&results)
+
+  b, err := json.Marshal(results)
+  check(err)
+
+  w.Header().Set("Content-Type", "application/json")
+  w.Write(b)
 }
 
 func prepLinks(url string) []string {
@@ -100,10 +127,10 @@ func saveDefinition(url string, db *gorm.DB) {
   termExample := def.Find(".example").Text()
 
   definition := term{termTitle, termDef, termExample}
-  dbEntry := entry{Term: termTitle, Def: termDef, Example: termExample}
+  dbEntry := Entry{Term: termTitle, Def: termDef, Example: termExample}
 
-  db.Where(entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
-  // db.Where(entry{Term: termTitle}).Attrs(entry{Term: termTitle, Def: termDef, Example: termExample}).FirstOrCreate(&entry)
-  db.Create(&dbEntry)
+  db.Where(Entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
+  // db.Where(Entry{Term: termTitle}).Attrs(Entry{Term: termTitle, Def: termDef, Example: termExample}).FirstOrCreate(&Entry)
+  // db.Create(&dbEntry)
   definition.save("/scraped")
 }
