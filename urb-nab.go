@@ -4,22 +4,22 @@ import (
   "fmt"
   "log"
   "sync"
-  "net/http"
-  "encoding/json"
+  "time"
+  // "net/http"
+  // "encoding/json"
   // "io/ioutil"
   // "path/filepath"
   "os"
   // "reflect"
 
   "github.com/PuerkitoBio/goquery"
-  "github.com/jinzhu/gorm"
-  _ "github.com/jinzhu/gorm/dialects/postgres"
+  // "github.com/jinzhu/gorm"
+  // _ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
 var wg sync.WaitGroup
 
 type Entry struct {
-  gorm.Model
   Term string
   Def string
   Example string
@@ -32,46 +32,57 @@ func check(e error) {
 }
 
 func main() {
-  db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-  check(err)
-  defer db.Close()
+  pollInterval := 12
 
-  db.AutoMigrate(&Entry{})
+	timerCh := time.Tick(time.Duration(pollInterval) * time.Hour)
 
-  http.HandleFunc("/grab", grabHandler)
-  http.HandleFunc("/give", giveHandler)
-  log.Fatal(http.ListenAndServe(":8080", nil))
+	for range timerCh {
+		grab()
+	}
 }
 
-func grabHandler(w http.ResponseWriter, r *http.Request) {
-  db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-  check(err)
-  defer db.Close()
+func grab() {
 
   links := prepLinks("https://www.urbandictionary.com")
   for _, link := range(links) {
     wg.Add(1)
-    go saveDefinition(link, db)
+    go saveDefinition(link)
   }
 
   wg.Wait()
-  fmt.Fprintf(w, "All Done.")
+  fmt.Println("Grabbed at", time.Now())
+
+  // db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
+  // check(err)
+  // defer db.Close()
+  //
+  // db.AutoMigrate(&Entry{})
+  //
+  // http.HandleFunc("/grab", grabHandler)
+  // http.HandleFunc("/give", giveHandler)
+  // log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func giveHandler(w http.ResponseWriter, r *http.Request) {
-  db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-  check(err)
-  defer db.Close()
-
-  var results []Entry
-  db.Find(&results)
-
-  b, err := json.Marshal(results)
-  check(err)
-
-  w.Header().Set("Content-Type", "application/json")
-  w.Write(b)
-}
+// func grabHandler(w http.ResponseWriter, r *http.Request) {
+//   db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
+//   check(err)
+//   defer db.Close()
+// }
+//
+// func giveHandler(w http.ResponseWriter, r *http.Request) {
+//   db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
+//   check(err)
+//   defer db.Close()
+//
+//   var results []Entry
+//   db.Find(&results)
+//
+//   b, err := json.Marshal(results)
+//   check(err)
+//
+//   w.Header().Set("Content-Type", "application/json")
+//   w.Write(b)
+// }
 
 func prepLinks(url string) []string {
   doc, err := goquery.NewDocument(url)
@@ -105,6 +116,8 @@ func (t term) save(path string) {
 
   path = wd + path
 
+  os.MkdirAll(path, os.ModePerm)
+
   f, err := os.Create(path + "/" + t.term + ".txt")
   check(err)
 
@@ -116,7 +129,7 @@ func (t term) save(path string) {
   f.Sync()
 }
 
-func saveDefinition(url string, db *gorm.DB) {
+func saveDefinition(url string) {
   defer wg.Done()
   doc, err := goquery.NewDocument(url)
   check(err)
@@ -127,9 +140,9 @@ func saveDefinition(url string, db *gorm.DB) {
   termExample := def.Find(".example").Text()
 
   definition := term{termTitle, termDef, termExample}
-  dbEntry := Entry{Term: termTitle, Def: termDef, Example: termExample}
-
-  db.Where(Entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
+  // dbEntry := Entry{Term: termTitle, Def: termDef, Example: termExample}
+  //
+  // db.Where(Entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
   // db.Where(Entry{Term: termTitle}).Attrs(Entry{Term: termTitle, Def: termDef, Example: termExample}).FirstOrCreate(&Entry)
   // db.Create(&dbEntry)
   definition.save("/scraped")
