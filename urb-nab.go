@@ -5,19 +5,22 @@ import (
   "log"
   "sync"
   "time"
-  // "net/http"
+  "strings"
+  "net/http"
+  "archive/zip"
+  "io"
+  "io/ioutil"
   // "encoding/json"
-  // "io/ioutil"
   // "path/filepath"
   "os"
   // "reflect"
 
   "github.com/PuerkitoBio/goquery"
-  // "github.com/jinzhu/gorm"
-  // _ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
 var wg sync.WaitGroup
+var wg2 sync.WaitGroup
+
 
 type Entry struct {
   Term string
@@ -32,17 +35,25 @@ func check(e error) {
 }
 
 func main() {
-  pollInterval := 12
+  // go serveWeb()
+  //
+  // pollInterval := 12
+  //
+	// timerCh := time.Tick(time.Duration(pollInterval) * time.Hour)
+  //
+	// for range timerCh {
+	// 	grab()
+	// }
+  grab()
+}
 
-	timerCh := time.Tick(time.Duration(pollInterval) * time.Hour)
-
-	for range timerCh {
-		grab()
-	}
+func serveWeb() {
+  http.HandleFunc("/", rootHandler)
+  http.HandleFunc("/give", giveHandler)
+  log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func grab() {
-
   links := prepLinks("https://www.urbandictionary.com")
   for _, link := range(links) {
     wg.Add(1)
@@ -51,38 +62,59 @@ func grab() {
 
   wg.Wait()
   fmt.Println("Grabbed at", time.Now())
-
-  // db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-  // check(err)
-  // defer db.Close()
-  //
-  // db.AutoMigrate(&Entry{})
-  //
-  // http.HandleFunc("/grab", grabHandler)
-  // http.HandleFunc("/give", giveHandler)
-  // log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-// func grabHandler(w http.ResponseWriter, r *http.Request) {
-//   db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-//   check(err)
-//   defer db.Close()
-// }
-//
-// func giveHandler(w http.ResponseWriter, r *http.Request) {
-//   db, err := gorm.Open("postgres", "host=localhost port=5432 user=urb dbname=urbdic password=badger")
-//   check(err)
-//   defer db.Close()
-//
-//   var results []Entry
-//   db.Find(&results)
-//
-//   b, err := json.Marshal(results)
-//   check(err)
-//
-//   w.Header().Set("Content-Type", "application/json")
-//   w.Write(b)
-// }
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+  fmt.Fprintf(w, "Hi, how's it going?")
+}
+
+func giveHandler(w http.ResponseWriter, r *http.Request) {
+  newfile, err := os.Create("urb.zip")
+  check(err)
+  defer newfile.Close()
+
+  zipWriter := zip.NewWriter(newfile)
+  defer zipWriter.Close()
+
+  files, err := ioutil.ReadDir("./scraped")
+  check(err)
+  for _, f := range files {
+    makeZip(zipWriter, f.Name())
+  }
+
+  wd, err := os.Getwd()
+  check(err)
+
+
+  fmt.Println("Threads finished, we good.")
+  fmt.Fprintf(w, "Have you some data.")
+  w.Header().Set("Content-Type", "application/zip")
+  w.Header().Set("Content-Disposition", "attachment; filename='urb.zip'")
+  http.ServeFile(w, r, wd + "/urb.zip")
+}
+
+func makeZip(z *zip.Writer, fName string) {
+  zipFile, err := os.Open("./scraped/" + fName)
+  check(err)
+  defer zipFile.Close()
+
+  info, err := zipFile.Stat()
+  check(err)
+
+  header, err := zip.FileInfoHeader(info)
+  check(err)
+
+  header.Method = zip.Deflate
+
+  writer, err := z.CreateHeader(header)
+  check(err)
+
+  _, err = io.Copy(writer, zipFile)
+  check(err)
+
+  fmt.Println(fName)
+  return
+}
 
 func prepLinks(url string) []string {
   doc, err := goquery.NewDocument(url)
@@ -118,7 +150,7 @@ func (t term) save(path string) {
 
   os.MkdirAll(path, os.ModePerm)
 
-  f, err := os.Create(path + "/" + t.term + ".txt")
+  f, err := os.Create(path + "/" + strings.Replace(t.term, "/", "-", -1) + ".txt")
   check(err)
 
   defer f.Close()
@@ -140,10 +172,5 @@ func saveDefinition(url string) {
   termExample := def.Find(".example").Text()
 
   definition := term{termTitle, termDef, termExample}
-  // dbEntry := Entry{Term: termTitle, Def: termDef, Example: termExample}
-  //
-  // db.Where(Entry{Term: termTitle}).Attrs(dbEntry).FirstOrCreate(&dbEntry)
-  // db.Where(Entry{Term: termTitle}).Attrs(Entry{Term: termTitle, Def: termDef, Example: termExample}).FirstOrCreate(&Entry)
-  // db.Create(&dbEntry)
   definition.save("/scraped")
 }
